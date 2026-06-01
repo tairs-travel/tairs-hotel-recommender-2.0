@@ -1,0 +1,24 @@
+services:
+  web:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5001:5000"
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5010:80"
+    depends_on:
+      - web
+    volumes:
+      - ./frontend/templates/index.html:/usr/share/nginx/html/index.html
+      - ./frontend/static:/usr/share/nginx/html/static

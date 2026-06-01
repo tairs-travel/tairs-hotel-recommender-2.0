@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotel Recommendation</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css">
+    <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+</head>
+
+<body>
+    <div class="content-layout">
+
+        <!-- Left panel: form + results -->
+        <aside class="left-panel">
+            <form id="recommendationForm" novalidate>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="passengers">Passenger</label>
+                        <input id="passengers" type="number" min="1" value="1" required>
+                    </div>
+
+                    <div class="field">
+                        <label for="airlineSelect">Airline from</label>
+                        <select id="airlineSelect" required>
+                            <option value="">Select airline...</option>
+                        </select>
+                    </div>
+
+
+                    <div class="field">
+                        <label for="destinationSelect">Destination</label>
+                        <select id="destinationSelect" required>
+                            <option value="">Select destination...</option>
+                        </select>
+                    </div>
+
+                    <div class="field field--full">
+                        <label for="checkIn">Check-in</label>
+                        <input id="checkIn" type="datetime-local">
+                    </div>
+
+                    <div class="field field--full">
+                        <label for="checkOut">Check-out</label>
+                        <input id="checkOut" type="datetime-local">
+                    </div>
+
+                    <div class="field field--full field--checkbox">
+                        <label class="checkbox-label" for="hasPets">
+                            <input id="hasPets" type="checkbox">
+                            Viajan con mascotas
+                        </label>
+                    </div>
+                </div>
+
+                <button id="submitBtn" class="btn-primary" type="submit">Get Recommendation</button>
+            </form>
+            </section>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Consultando recomendaciones...</p>
+            </div>
+            <div id="errorBox" class="error-box hidden" role="alert" aria-live="polite">
+                <span class="error-box__icon" aria-hidden="true">!</span>
+                <div class="error-box__body">
+                    <p class="error-box__title" id="errorTitle"></p>
+                    <p class="error-box__message" id="errorMessage"></p>
+                </div>
+            </div>
+            <div id="warningBox" class="warning-box hidden" role="status" aria-live="polite">
+                <span class="warning-box__icon" aria-hidden="true">i</span>
+                <div class="warning-box__body">
+                    <p class="warning-box__title" id="warningTitle"></p>
+                    <p class="warning-box__message" id="warningMessage"></p>
+                </div>
+            </div>
+            <div id="results" class="results"></div>
+        </aside>
+
+        <!-- Right panel: map -->
+        <div id="map" class="map-panel"></div>
+
+    </div>
+
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/map.js"></script>
+</body>
+
+</html>

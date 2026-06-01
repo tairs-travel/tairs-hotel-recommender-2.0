@@ -1,0 +1,60 @@
+### External — Hotels API
+GET http://84.247.185.239:5004/api/hotels/export
+x-api-key: 49bc945e3930c768ea2748fb68b3c93fe760b2447dec1fe5e1188541b0139518
+
+### External — Hotels API (solo PUJ)
+GET http://84.247.185.239:5004/api/hotels/export?iata_code=PUJ
+x-api-key: 49bc945e3930c768ea2748fb68b3c93fe760b2447dec1fe5e1188541b0139518
+
+### External — Airlines API
+GET http://84.247.185.239:5007/api/airlines
+x-api-key: tk_live_5283a941d9d8d4afa849364ae6efbe682635e3a56bde97d6
+
+### Local — Health
+GET http://127.0.0.1:5001/health
+
+### Local — Airlines (proxy via Flask)
+GET http://127.0.0.1:5001/airlines
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pipeline stage tests — Arajet (PUJ), group A (price 148)
+# Expected strategy per passenger count (live thresholds as of 2026-05-30):
+#   ≤ 198 pax  → single-hotel          (un hotel cubre todo)
+#   199–230    → multi-hotel            (varios hoteles, mismo IATA PUJ)
+#   231+       → expansion-multi primero (grupos A→B en mismo IATA)
+#   luego      → overflow-multi         (PUJ + SDQ, tras agotar local)
+#   ≥ 290      → expansion-overflow-multi (PUJ + SDQ, grupos expandidos)
+# Respuesta puede incluir "warnings" si hubo expansión u overflow.
+# ─────────────────────────────────────────────────────────────────────────────
+
+### Stage 1 — single-hotel (2 pax, debe devolver strategy: single-hotel)
+POST http://127.0.0.1:5001/recommendations
+Content-Type: application/json
+
+{
+  "passengers": 180,
+  "airline": "Arajet (PUJ)",
+  "destination": "Arajet (PUJ)"
+}
+
+### Stage 1 — single-hotel con fechas (activa meal_relevance)
+POST http://127.0.0.1:5001/recommendations
+Content-Type: application/json
+
+{
+  "passengers": 200,
+  "airline": "Arajet (PUJ)",
+  "destination": "Arajet (PUJ)",
+  "check_in": "2026-06-01T20:00:00",
+  "check_out": "2026-06-02T10:00:00"
+}
+
+### SDQ — single-hotel (2 pax, destino SDQ, Condor grupo D price 185)
+POST http://127.0.0.1:5001/recommendations
+Content-Type: application/json
+
+{
+  "passengers": 2,
+  "airline": "Condor (SDQ)",
+  "destination": "Condor (SDQ)"
+}
