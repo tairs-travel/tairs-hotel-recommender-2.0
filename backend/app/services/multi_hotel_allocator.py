@@ -18,13 +18,17 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-MULTI_PENALTY_EXTRA_HOTEL = 0.05   # per extra hotel beyond the first
-MULTI_PENALTY_SPLIT = 0.10   # per hotel split of the passenger group
 MAX_CANDIDATES = 200    # max virtual candidates to generate
-MAX_HOTELS_PER_GROUP = 10     # max hotels allowed in a single multi-hotel combination
+# Absolute ceiling for hotels in one multi combo; effective limit is
+# min(len(enriched), MAX_HOTELS_PER_GROUP_ABSOLUTE) — see Option A.
+MAX_HOTELS_PER_GROUP_ABSOLUTE = 15
 
 # Maps priority label → sort key (lower = better)
 _PRIORITY_ORDER: dict[str, int] = {
+    "1": 0,
+    "2": 1,
+    "3": 2,
+    "4": 3,
     "high": 0,
     "medium": 1,
     "medium-low": 2,
@@ -126,8 +130,9 @@ def build_multi_hotel_candidates(
     1. Enrich each entry with capacity metrics (hard_cap, target_cap,
        is_estimated).
     2. Sort entries by hard_cap descending for early pruning.
-    3. DFS over subsets of 2–3 hotels whose combined hard_cap >= passengers,
-       stopping once MAX_CANDIDATES valid subsets are found.
+    3. DFS over subsets of 2..N hotels (N = min(eligible, absolute ceiling))
+       whose combined hard_cap >= passengers, stopping once MAX_CANDIDATES
+       valid subsets are found.
     4. For each valid subset:
        a. Distribute passengers via ``_distribute_passengers_target_first``.
        b. For each hotel compute ``find_min_cost_combination``; if the hotel
@@ -176,13 +181,17 @@ def build_multi_hotel_candidates(
     def _sort_key(entry: dict) -> tuple:
         hotel: Hotel = entry["hotel"]
         is_remote = 1 if primary and hotel.iata_code.upper() != primary else 0
-        return (is_remote, entry["distance"], -entry["hard_cap"])
+        pri_rank = _PRIORITY_ORDER.get(hotel.priority, 3)
+        return (is_remote, pri_rank, entry["distance"], -entry["hard_cap"])
 
     enriched.sort(key=_sort_key)
 
+    max_hotels_per_combo = min(
+        len(enriched), MAX_HOTELS_PER_GROUP_ABSOLUTE)
+
     candidates: list[dict] = []
 
-    # Step 3 — DFS over subsets of size 2–3
+    # Step 3 — DFS over subsets up to max_hotels_per_combo
     def _dfs(start: int, subset: list[dict]) -> None:
         if len(candidates) >= MAX_CANDIDATES:
             return
@@ -192,7 +201,7 @@ def build_multi_hotel_candidates(
         if combined_cap >= passengers and len(subset) >= 2:
             _build_candidate(subset)
 
-        if len(subset) >= MAX_HOTELS_PER_GROUP or len(candidates) >= MAX_CANDIDATES:
+        if len(subset) >= max_hotels_per_combo or len(candidates) >= MAX_CANDIDATES:
             return
 
         for i in range(start, len(enriched)):
@@ -254,6 +263,7 @@ def build_multi_hotel_candidates(
                 "combo":               combo,
                 "price":               combo.total_cost,
                 "meals":               hotel.meals,
+                "all_inclusive":       hotel.all_inclusive,
                 "amenities":           hotel.amenities,
                 "priority":            hotel.priority,
                 "is_estimated":        entry["is_estimated"],
@@ -319,8 +329,8 @@ def build_multi_hotel_candidates(
             "is_estimated":      any_estimated,
             "uncertainty_penalty":    uncertainty_count * 0.02,
             "distance_penalty":       distance_penalty,
-            "extra_hotel_penalty":    (len(subset) - 1) * MULTI_PENALTY_EXTRA_HOTEL,
-            "split_penalty":          len(subset) * MULTI_PENALTY_SPLIT,
+            "extra_hotel_penalty":    (len(subset) - 1) * config.MULTI_PENALTY_EXTRA_HOTEL,
+            "split_penalty":          len(subset) * config.MULTI_PENALTY_SPLIT,
             "result_type":       "multi",
         })
 
@@ -376,7 +386,8 @@ def build_partial_multi_hotel_candidate(
     def _sort_key(entry: dict) -> tuple:
         hotel: Hotel = entry["hotel"]
         is_remote = 1 if primary and hotel.iata_code.upper() != primary else 0
-        return (is_remote, entry["distance"], -entry["hard_cap"])
+        pri_rank = _PRIORITY_ORDER.get(hotel.priority, 3)
+        return (is_remote, pri_rank, entry["distance"], -entry["hard_cap"])
 
     enriched.sort(key=_sort_key)
 
@@ -422,6 +433,7 @@ def build_partial_multi_hotel_candidate(
             "combo": combo,
             "price": combo.total_cost,
             "meals": hotel.meals,
+            "all_inclusive": hotel.all_inclusive,
             "amenities": hotel.amenities,
             "priority": hotel.priority,
             "is_estimated": entry["is_estimated"] or used_estimation,
@@ -496,8 +508,8 @@ def build_partial_multi_hotel_candidate(
         "is_estimated": any_estimated,
         "uncertainty_penalty": uncertainty_count * 0.02,
         "distance_penalty": distance_penalty,
-        "extra_hotel_penalty": (len(used_entries) - 1) * MULTI_PENALTY_EXTRA_HOTEL,
-        "split_penalty": len(used_entries) * MULTI_PENALTY_SPLIT,
+        "extra_hotel_penalty": (len(used_entries) - 1) * config.MULTI_PENALTY_EXTRA_HOTEL,
+        "split_penalty": len(used_entries) * config.MULTI_PENALTY_SPLIT,
         "result_type": "multi",
         "is_partial": passengers_unassigned > 0,
         "assigned_passengers_total": assigned_total,

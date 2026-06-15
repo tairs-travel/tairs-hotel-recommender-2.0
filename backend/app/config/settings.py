@@ -62,14 +62,28 @@ class Config:
     # Penalty multiplier applied when a hotel's occupancy exceeds the target.
     SATURATION_PENALTY_WEIGHT: float = 0.05
 
-    # Base scoring weights — must sum to 1.0.
+    # Multi-hotel operational penalties (per extra hotel / per split).
+    MULTI_PENALTY_EXTRA_HOTEL: float = 0.05
+    MULTI_PENALTY_SPLIT: float = 0.10
+    UNCERTAINTY_PENALTY_PER_HOTEL: float = 0.03
+    # Cap total operational penalties so base_score remains differentiated.
+    PENALTY_MAX_FRACTION_OF_BASE: float = 0.50
+
+    # Base scoring weights for non-all-inclusive hotels — must sum to 1.0.
     #
     # Redistribution rules (applied at scoring time, not stored here):
     #   • When no meal dates are provided, meals_time weight is added to meals.
     DEFAULT_WEIGHTS: dict = {
         "distance":   0.15,
-        "priority":   0.75,
-        "meals":      0.05,
-        "meals_time": 0.05,
+        "priority":   0.45,
+        "meals":      0.25,
+        "meals_time": 0.10,
+    }
+
+    # Per-hotel weights for all-inclusive hotels (replaces meals + meals_time).
+    ALL_INCLUSIVE_WEIGHTS: dict = {
+        "distance":      0.15,
+        "priority":      0.40,
+        "all_inclusive": 0.45,
     }
 

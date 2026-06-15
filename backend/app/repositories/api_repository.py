@@ -169,6 +169,14 @@ class APIHotelRepository(HotelRepository):
             else:
                 meals = {"breakfast": False, "lunch": False, "dinner": False}
 
+            raw_category = item.get("category") or []
+            categories = (
+                list(raw_category)
+                if isinstance(raw_category, list)
+                else [str(raw_category)]
+            )
+            all_inclusive = "all_inclusive" in categories
+
             lat = item.get("latitude", item.get("lat"))
             lng = item.get("longitude", item.get("lng"))
 
@@ -186,6 +194,8 @@ class APIHotelRepository(HotelRepository):
                 meals=meals,
                 groups=list(item.get("groups") or []),
                 pet_friendly=pet_friendly,
+                categories=categories,
+                all_inclusive=all_inclusive,
             )
         except (KeyError, TypeError, ValueError) as exc:
             logger.warning("Failed to map hotel item %s: %s", item.get("id"), exc)

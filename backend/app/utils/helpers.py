@@ -157,6 +157,11 @@ def meals_score(meals: dict) -> float:
     return offered / 3.0
 
 
+def all_inclusive_score(is_all_inclusive: bool) -> float:
+    """Binary score for all-inclusive hotels."""
+    return 1.0 if is_all_inclusive else 0.0
+
+
 def calculate_relevant_meals(
     check_in: datetime, check_out: datetime
 ) -> dict[str, float]:

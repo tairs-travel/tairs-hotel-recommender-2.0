@@ -13,6 +13,7 @@ from app.services.multi_hotel_allocator import (
 from app.utils.airline_groups import get_expanded_groups
 from app.utils.airports import get_airports_within_radius
 from app.utils.helpers import (
+    all_inclusive_score,
     availability_score,
     calculate_capacity_metrics,
     double_room_bonus,
@@ -35,6 +36,7 @@ _FACTOR_DIRECTIONS: dict[str, str] = {
     "priority": "higher",
     "meals": "higher",
     "meals_time": "higher",
+    "all_inclusive": "higher",
 }
 
 _PRIORITY_RANK: dict[str, int] = {
@@ -194,14 +196,10 @@ class RuleBasedRecommender(BaseRecommender):
         candidate_pool: list[dict] = []
 
         # ── STEP 3: staged pipeline ───────────────────────────────────────────
-        # Stage 1: single hotel — same IATA, primary group
-        # Stage 2: multi-hotel  — same IATA, primary group
-        # Stage 3: single hotel — paired IATA, same primary group
-        # Stage 4: multi-hotel  — paired IATA, same primary group
-        # Stage 5: single hotel — same IATA, expanded groups
-        # Stage 6: multi-hotel  — same IATA, expanded groups
-        # Stage 7: single hotel — paired IATA, expanded groups
-        # Stage 8: multi-hotel  — paired IATA, expanded groups
+        # Stage 1–2: same IATA, primary group
+        # Stage 3–4: same IATA, expanded groups
+        # Stage 5–6: paired IATA, primary group (overflow)
+        # Stage 7–8: paired IATA, expanded groups (overflow)
         single_primary, eligible_primary, hbi = self._build_single_candidates(
             hotels=primary_group_hotels,
             passengers=passengers,
@@ -228,7 +226,48 @@ class RuleBasedRecommender(BaseRecommender):
                 candidate_pool = multi
                 self._last_strategy = "multi-hotel"
 
-        # Stage 3–4: overflow — primary group, cross-IATA (before local expansion)
+        # Stage 3–4: group expansion — same IATA, expanded groups (e.g. A → B)
+        if not candidate_pool and expanded_group_hotels:
+            single_exp, eligible_exp, hbi = self._build_single_candidates(
+                hotels=expanded_group_hotels,
+                passengers=passengers,
+                airport_lat=airport_lat,
+                airport_lng=airport_lng,
+                meal_relevance=resolved_meal_relevance,
+                airline_price=airline_price,
+            )
+            hotel_by_id.update(hbi)
+
+            if single_exp:
+                candidate_pool = single_exp
+                self._last_strategy = "expansion-single"
+                self._last_group_expansion = {
+                    "primary_group": normalized_group,
+                    "expanded_groups": expanded_groups,
+                    "reason": "capacity insufficient in primary group locally",
+                }
+                self._last_warnings.append(
+                    f"Rate group expanded to {', '.join(expanded_groups)} in {requested_iata}."
+                )
+            elif len(eligible_exp) >= 2:
+                multi_exp = build_multi_hotel_candidates(
+                    eligible=eligible_exp,
+                    passengers=passengers,
+                    meal_relevance=resolved_meal_relevance,
+                    has_meal_relevance=has_meal_relevance,
+                    config=self._config,
+                    primary_iata=requested_iata,
+                )
+                if multi_exp:
+                    candidate_pool = multi_exp
+                    self._last_strategy = "expansion-multi"
+                    self._last_group_expansion = {
+                        "primary_group": normalized_group,
+                        "expanded_groups": expanded_groups,
+                        "reason": "capacity insufficient in primary group locally",
+                    }
+
+        # Stage 5–6: overflow — primary group, cross-IATA
         if not candidate_pool and overflow_secondary_hotels:
             overflow_pool = primary_group_hotels + overflow_secondary_hotels
             single_overflow, eligible_overflow, hbi = self._build_single_candidates(
@@ -247,7 +286,7 @@ class RuleBasedRecommender(BaseRecommender):
                 candidate_pool = single_overflow
                 self._last_strategy = "overflow-single"
                 self._last_warnings.append(
-                    f"Se incluyeron hoteles fuera de {requested_iata} por capacidad insuficiente local."
+                    f"Hotels outside {requested_iata} were included due to insufficient local capacity."
                 )
             elif len(eligible_overflow) >= 2:
                 multi_overflow = build_multi_hotel_candidates(
@@ -264,49 +303,8 @@ class RuleBasedRecommender(BaseRecommender):
                     candidate_pool = multi_overflow
                     self._last_strategy = "overflow-multi"
                     self._last_warnings.append(
-                        f"Se incluyeron hoteles fuera de {requested_iata} por capacidad insuficiente local."
+                        f"Hotels outside {requested_iata} were included due to insufficient local capacity."
                     )
-
-        # Stage 5–6: group expansion — same IATA, expanded groups (e.g. A → B)
-        if not candidate_pool and expanded_group_hotels:
-            single_exp, eligible_exp, hbi = self._build_single_candidates(
-                hotels=expanded_group_hotels,
-                passengers=passengers,
-                airport_lat=airport_lat,
-                airport_lng=airport_lng,
-                meal_relevance=resolved_meal_relevance,
-                airline_price=airline_price,
-            )
-            hotel_by_id.update(hbi)
-
-            if single_exp:
-                candidate_pool = single_exp
-                self._last_strategy = "expansion-single"
-                self._last_group_expansion = {
-                    "primary_group": normalized_group,
-                    "expanded_groups": expanded_groups,
-                    "reason": "capacity insufficient in primary group after paired-IATA fallback",
-                }
-                self._last_warnings.append(
-                    f"Se amplió el grupo tarifario a {', '.join(expanded_groups)} en {requested_iata}."
-                )
-            elif len(eligible_exp) >= 2:
-                multi_exp = build_multi_hotel_candidates(
-                    eligible=eligible_exp,
-                    passengers=passengers,
-                    meal_relevance=resolved_meal_relevance,
-                    has_meal_relevance=has_meal_relevance,
-                    config=self._config,
-                    primary_iata=requested_iata,
-                )
-                if multi_exp:
-                    candidate_pool = multi_exp
-                    self._last_strategy = "expansion-multi"
-                    self._last_group_expansion = {
-                        "primary_group": normalized_group,
-                        "expanded_groups": expanded_groups,
-                        "reason": "capacity insufficient in primary group after paired-IATA fallback",
-                    }
 
         # Stage 7–8: group expansion + overflow — expanded groups, cross-IATA
         if not candidate_pool and expanded_secondary_hotels:
@@ -329,7 +327,7 @@ class RuleBasedRecommender(BaseRecommender):
                 self._last_group_expansion = {
                     "primary_group": normalized_group,
                     "expanded_groups": expanded_groups,
-                    "reason": "capacity insufficient across primary group and paired IATA",
+                    "reason": "capacity insufficient in expanded groups locally and in paired IATA",
                 }
             elif len(eligible_exp_ov) >= 2:
                 multi_exp_ov = build_multi_hotel_candidates(
@@ -348,10 +346,10 @@ class RuleBasedRecommender(BaseRecommender):
                     self._last_group_expansion = {
                         "primary_group": normalized_group,
                         "expanded_groups": expanded_groups,
-                        "reason": "capacity insufficient across primary group and paired IATA",
+                        "reason": "capacity insufficient in expanded groups locally and in paired IATA",
                     }
                     self._last_warnings.append(
-                        f"Se amplió el grupo tarifario y se usaron hoteles fuera de {requested_iata}."
+                        f"Rate group was expanded and hotels outside {requested_iata} were used."
                     )
 
         if not candidate_pool:
@@ -381,8 +379,8 @@ class RuleBasedRecommender(BaseRecommender):
                     "assigned_passengers_total", 0))
                 self._last_warnings.append(
                     (
-                        f"Capacidad insuficiente para {passengers} pasajeros. "
-                        f"Se distribuyeron {assigned} y quedaron {unassigned} sin asignar."
+                        f"Insufficient capacity for {passengers} passengers. "
+                        f"{assigned} were assigned and {unassigned} remain unassigned."
                     )
                 )
             else:
@@ -390,53 +388,53 @@ class RuleBasedRecommender(BaseRecommender):
                 if max_available_capacity > 0:
                     self._last_warnings.append(
                         (
-                            "No hay capacidad suficiente para el grupo solicitado "
-                            f"({passengers} pasajeros). "
-                            f"Capacidad máxima elegible con filtros actuales: {max_available_capacity}."
+                            "Not enough capacity for the requested group "
+                            f"({passengers} passengers). "
+                            f"Maximum eligible capacity with current filters: {max_available_capacity}."
                         )
                     )
                 else:
                     self._last_warnings.append(
-                        "No hay hoteles elegibles con los filtros/grupo/IATA actuales."
+                        "No eligible hotels with the current filters/group/IATA."
                     )
                 return []
 
         scored_results: list[RecommendationResult] = []
-        factor_values = {
-            factor: [
-                self._raw_factor_value(
-                    candidate,
-                    factor,
-                    self._candidate_scoring_passengers(candidate, passengers),
-                    resolved_meal_relevance,
-                    airline_price,
-                )
-                for candidate in candidate_pool
-            ]
+        ai_weights = dict(self._config.ALL_INCLUSIVE_WEIGHTS)
+        profiles = [
+            self._candidate_factor_profile(
+                candidate,
+                hotel_by_id,
+                self._candidate_scoring_passengers(candidate, passengers),
+                resolved_meal_relevance,
+                weights,
+                ai_weights,
+            )
+            for candidate in candidate_pool
+        ]
+
+        factor_raws = {
+            factor: [profile[factor]["raw"] for profile in profiles]
             for factor in _FACTOR_DIRECTIONS
         }
 
-        for candidate in candidate_pool:
+        for candidate, profile in zip(candidate_pool, profiles):
             weighted_factors: dict[str, float] = {}
             for factor, direction in _FACTOR_DIRECTIONS.items():
-                raw = self._raw_factor_value(
-                    candidate,
-                    factor,
-                    self._candidate_scoring_passengers(candidate, passengers),
-                    resolved_meal_relevance,
-                    airline_price,
-                )
-                values = factor_values[factor]
+                factor_weight = profile[factor]["weight"]
+                if factor_weight <= 0:
+                    continue
+                raw = profile[factor]["raw"]
+                values = factor_raws[factor]
                 min_val = min(values)
                 max_val = max(values)
                 if max_val == min_val:
-                    normalized_value = 0.0
+                    normalized_value = 1.0
                 else:
                     normalized_value = normalize(raw, min_val, max_val)
                     if direction == "lower":
                         normalized_value = 1.0 - normalized_value
-                weighted_factors[factor] = weights.get(
-                    factor, 0.0) * normalized_value
+                weighted_factors[factor] = factor_weight * normalized_value
 
             candidate_rooms = self._candidate_room_inventory(
                 candidate, hotel_by_id)
@@ -450,14 +448,17 @@ class RuleBasedRecommender(BaseRecommender):
             multi_penalty = 0.0
             if hotels_used > 1:
                 multi_penalty = (
-                    0.05 * (hotels_used - 1)
-                    + 0.10 * (hotels_used - 1)
+                    self._config.MULTI_PENALTY_EXTRA_HOTEL * (hotels_used - 1)
+                    + self._config.MULTI_PENALTY_SPLIT * (hotels_used - 1)
                     + candidate.get("distance_penalty", 0.0)
                 )
 
             saturation_penalty = self._saturation_penalty(
                 candidate, hotel_by_id)
-            uncertainty_penalty = 0.03 * self._estimated_hotel_count(candidate)
+            uncertainty_penalty = (
+                self._config.UNCERTAINTY_PENALTY_PER_HOTEL
+                * self._estimated_hotel_count(candidate)
+            )
             remote_penalty = self._overflow_remote_penalty(
                 candidate,
                 hotel_by_id,
@@ -466,21 +467,22 @@ class RuleBasedRecommender(BaseRecommender):
 
             base_score = sum(weighted_factors.values()) + \
                 double_bonus + availability_bonus
+            operational_penalty = (
+                multi_penalty + saturation_penalty
+                + uncertainty_penalty + remote_penalty
+            )
+            capped_penalty = min(
+                operational_penalty,
+                base_score * self._config.PENALTY_MAX_FRACTION_OF_BASE,
+            )
             final_score = max(
                 0.0,
-                min(
-                    1.0,
-                    base_score
-                    - multi_penalty
-                    - saturation_penalty
-                    - uncertainty_penalty
-                    - remote_penalty,
-                ),
+                min(1.0, base_score - capped_penalty),
             )
 
             score_breakdown = {
-                factor: round(weighted_factors[factor], 4)
-                for factor in _FACTOR_DIRECTIONS
+                factor: round(value, 4)
+                for factor, value in weighted_factors.items()
             }
             score_breakdown["double_room_bonus"] = round(double_bonus, 4)
             score_breakdown["availability_bonus"] = round(
@@ -492,6 +494,9 @@ class RuleBasedRecommender(BaseRecommender):
                 uncertainty_penalty, 4)
             score_breakdown["overflow_remote_penalty"] = round(
                 remote_penalty, 4)
+            if capped_penalty < operational_penalty:
+                score_breakdown["operational_penalty_applied"] = round(
+                    capped_penalty, 4)
 
             result = self._candidate_to_result(
                 candidate=candidate,
@@ -503,11 +508,20 @@ class RuleBasedRecommender(BaseRecommender):
             if result.total_price > 0:
                 scored_results.append(result)
 
-        if pets:
-            scored_results = [
-                item for item in scored_results if item.pet_friendly]
+        scored_results.sort(
+            key=lambda item: (
+                item.score,
+                self._combo_priority_tiebreak(item),
+                self._combo_all_inclusive_tiebreak(item),
+                -item.distance_km,
+            ),
+            reverse=True,
+        )
 
-        scored_results.sort(key=lambda item: item.score, reverse=True)
+        if pets:
+            pet_results = [r for r in scored_results if r.pet_friendly]
+            non_pet_results = [r for r in scored_results if not r.pet_friendly]
+            scored_results = pet_results + non_pet_results
         if self._last_strategy and "multi" in self._last_strategy:
             return scored_results[:1]
         return scored_results[: self._config.TOP_N]
@@ -682,31 +696,99 @@ class RuleBasedRecommender(BaseRecommender):
             hotels_coords=hotels_coords if len(hotels_coords) > 1 else None,
             duration_seconds=candidate.get("duration_seconds"),
             pet_friendly=candidate.get("pet_friendly", hotel.pet_friendly),
+            all_inclusive=candidate.get("all_inclusive", hotel.all_inclusive),
             rooms={"single": hotel.rooms.single, "double": hotel.rooms.double, "triple": hotel.rooms.triple, "quadruple": hotel.rooms.quadruple},
         )
 
-    def _raw_factor_value(
+    def _candidate_scoring_entries(
         self,
         candidate: dict,
-        factor: str,
+        hotel_by_id: dict[str, Hotel],
+        passengers: int,
+    ) -> list[dict]:
+        allocations = candidate.get("allocations")
+        if allocations:
+            entries: list[dict] = []
+            for alloc in allocations:
+                hotel = hotel_by_id.get(alloc.get("hotel_id", ""))
+                if hotel is None:
+                    continue
+                pax = int(alloc.get("assigned_passengers") or 0)
+                if pax <= 0:
+                    continue
+                entries.append({
+                    "hotel": hotel,
+                    "pax": pax,
+                    "priority": alloc.get("priority", hotel.priority),
+                    "meals": alloc.get("meals", hotel.meals),
+                    "all_inclusive": alloc.get("all_inclusive", hotel.all_inclusive),
+                })
+            if entries:
+                return entries
+
+        hotel = candidate["hotel"]
+        return [{
+            "hotel": hotel,
+            "pax": passengers,
+            "priority": candidate.get("priority", hotel.priority),
+            "meals": candidate.get("meals", hotel.meals),
+            "all_inclusive": candidate.get("all_inclusive", hotel.all_inclusive),
+        }]
+
+    def _candidate_factor_profile(
+        self,
+        candidate: dict,
+        hotel_by_id: dict[str, Hotel],
         passengers: int,
         meal_relevance: dict | None,
-        airline_price: float | None,
-    ) -> float:
-        hotel = candidate["hotel"]
-        total_price = candidate["total_price"]
-        price_per_person = total_price / passengers if passengers > 0 else total_price
-        meals = candidate.get("meals", hotel.meals)
+        standard_weights: dict[str, float],
+        ai_weights: dict[str, float],
+    ) -> dict[str, dict[str, float]]:
+        entries = self._candidate_scoring_entries(
+            candidate, hotel_by_id, passengers)
+        total_pax = sum(entry["pax"] for entry in entries) or max(passengers, 1)
 
-        if factor == "distance":
-            return candidate["distance"]
-        if factor == "priority":
-            return priority_score(candidate.get("priority", hotel.priority))
-        if factor == "meals":
-            return meals_score(meals)
-        if factor == "meals_time":
-            return meals_time_score(meals, meal_relevance or {}) if meal_relevance else 0.0
-        raise KeyError(factor)
+        priority_raw = 0.0
+        meals_raw = 0.0
+        meals_time_raw = 0.0
+        all_inclusive_raw = 0.0
+
+        priority_weight = 0.0
+        meals_weight = 0.0
+        meals_time_weight = 0.0
+        all_inclusive_weight = 0.0
+
+        for entry in entries:
+            share = entry["pax"] / total_pax
+            if entry["all_inclusive"]:
+                priority_raw += share * priority_score(entry["priority"])
+                priority_weight += share * ai_weights["priority"]
+                all_inclusive_raw += share * all_inclusive_score(True)
+                all_inclusive_weight += share * ai_weights["all_inclusive"]
+            else:
+                priority_raw += share * priority_score(entry["priority"])
+                priority_weight += share * standard_weights["priority"]
+                meals_raw += share * meals_score(entry["meals"])
+                meals_weight += share * standard_weights.get("meals", 0.0)
+                if standard_weights.get("meals_time", 0.0) > 0 and meal_relevance:
+                    meals_time_raw += share * meals_time_score(
+                        entry["meals"], meal_relevance
+                    )
+                    meals_time_weight += share * standard_weights["meals_time"]
+
+        distance_weight = standard_weights.get(
+            "distance", ai_weights.get("distance", 0.15))
+
+        return {
+            "distance": {"raw": candidate["distance"], "weight": distance_weight},
+            "priority": {"raw": priority_raw, "weight": priority_weight},
+            "meals": {"raw": meals_raw, "weight": meals_weight},
+            "meals_time": {"raw": meals_time_raw, "weight": meals_time_weight},
+            "all_inclusive": {
+                "raw": all_inclusive_raw,
+                "weight": all_inclusive_weight,
+            },
+        }
 
     def _saturation_penalty(self, candidate: dict, hotel_by_id: dict[str, Hotel]) -> float:
         allocations = candidate.get("allocations")
@@ -742,6 +824,37 @@ class RuleBasedRecommender(BaseRecommender):
         if allocations:
             return sum(1 for allocation in allocations if allocation.get("is_estimated"))
         return 1 if candidate.get("is_estimated") else 0
+
+    @staticmethod
+    def _combo_priority_tiebreak(result: RecommendationResult) -> tuple[int, int, int, int]:
+        counts = {"1": 0, "2": 0, "3": 0, "4": 0}
+        allocations = result.allocations
+        if allocations:
+            for alloc in allocations:
+                priority = str(alloc.get("priority", "4"))
+                if priority in counts:
+                    counts[priority] += 1
+                else:
+                    counts["4"] += 1
+        else:
+            priority = str(result.priority)
+            key = priority if priority in counts else "4"
+            counts[key] = 1
+        return (
+            counts["1"],
+            counts["2"],
+            counts["3"],
+            -counts["4"],
+        )
+
+    @staticmethod
+    def _combo_all_inclusive_tiebreak(result: RecommendationResult) -> int:
+        allocations = result.allocations
+        if allocations:
+            return sum(
+                1 for alloc in allocations if alloc.get("all_inclusive")
+            )
+        return 1 if result.all_inclusive else 0
 
     def _candidate_room_inventory(
         self,

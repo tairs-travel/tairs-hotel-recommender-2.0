@@ -41,40 +41,41 @@ const MOCK_RESULTS = {
       },
       room_combination: { single: 0, double: 8, triple: 2, quadruple: 0 },
       meals: { breakfast: true, lunch: true, dinner: false },
+      all_inclusive: true,
       priority: "high",
     },
     {
       type: "multi",
-      hotel_name: "Coral Reef / Tropical Inn",
-      stars: 4,
-      distance_km: 18.6,
-      total_price: 3980,
-      score_label: "Good",
-      score_percentage: 76,
-      score_breakdown: {
-        price: 0.2,
-        distance: 0.11,
-        stars: 0.08,
-        priority: 0.17,
-        meals: 0.05,
-      },
-      room_combination: { single: 2, double: 7, triple: 1, quadruple: 0 },
-      meals: { breakfast: true, lunch: false, dinner: true },
-      priority: "medium",
       hotels_used: 2,
+      hotels_coords: [
+        { name: "Coral Reef", lat: 18.65, lng: -68.36 },
+        { name: "Tropical Inn", lat: 18.66, lng: -68.37 },
+      ],
       allocations: [
         {
           hotel_name: "Coral Reef",
+          stars: 4,
+          distance_km: 12.1,
           assigned_passengers: 10,
-          subtotal_price: 2200,
+          priority: "1",
+          is_estimated: true,
+          groups: ["A"],
+          rooms: { single: 20, double: 0, triple: 0, quadruple: 0 },
+          meals: { breakfast: true, lunch: false, dinner: true },
+          all_inclusive: true,
         },
         {
           hotel_name: "Tropical Inn",
+          stars: 3,
+          distance_km: 14.5,
           assigned_passengers: 8,
-          subtotal_price: 1780,
+          priority: "2",
+          is_estimated: false,
+          groups: ["A", "B"],
+          rooms: { single: 15, double: 0, triple: 0, quadruple: 0 },
+          meals: { breakfast: true, lunch: true, dinner: false },
         },
       ],
-      is_estimated: true,
       passengers_unassigned: 2,
     },
   ],
@@ -93,8 +94,8 @@ function setSseState(online) {
   }
   if (text) {
     text.textContent = online
-      ? "Tiempo real conectado"
-      : "Tiempo real desconectado";
+      ? "Live updates connected"
+      : "Live updates disconnected";
   }
 }
 
@@ -160,14 +161,14 @@ async function fetchAirlinesFallback() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!Array.isArray(data) || data.length === 0) {
-      throw new Error("La API de aerolíneas no devolvió datos");
+      throw new Error("Airlines API returned no data");
     }
     applyAirlinesData(data);
     setSseState(false);
   } catch (err) {
     console.warn("Airlines fallback failed:", err);
     applyAirlinesData(MOCK_AIRLINES);
-    setError("No se pudo cargar aerolíneas reales. Mostrando lista de prueba.");
+    setError("Could not load live airlines. Showing test data.");
   }
 }
 
@@ -209,13 +210,14 @@ function getScoreClass(label, pct) {
   return "low";
 }
 
-function formatMeals(meals = {}) {
+function formatMeals(meals = {}, allInclusive = false) {
+  if (allInclusive) return "All inclusive";
   const flags = [
-    meals.breakfast ? "Desayuno" : null,
-    meals.lunch ? "Almuerzo" : null,
-    meals.dinner ? "Cena" : null,
+    meals.breakfast ? "Breakfast" : null,
+    meals.lunch ? "Lunch" : null,
+    meals.dinner ? "Dinner" : null,
   ].filter(Boolean);
-  return flags.length ? flags.join(" · ") : "Sin comidas incluidas";
+  return flags.length ? flags.join(" · ") : "No meals included";
 }
 
 function formatDuration(seconds) {
@@ -228,17 +230,17 @@ function formatDuration(seconds) {
 
 function formatGroups(groups) {
   if (!Array.isArray(groups) || groups.length === 0) return "";
-  return `Grupos: ${groups.join(", ")}`;
+  return `Groups: ${groups.join(", ")}`;
 }
 
 function formatRooms(rooms) {
   if (!rooms) return "";
-  const parts = [];
-  if (rooms.single > 0) parts.push(`${rooms.single} sencilla${rooms.single !== 1 ? "s" : ""}`);
-  if (rooms.double > 0) parts.push(`${rooms.double} doble${rooms.double !== 1 ? "s" : ""}`);
-  if (rooms.triple > 0) parts.push(`${rooms.triple} triple${rooms.triple !== 1 ? "s" : ""}`);
-  if (rooms.quadruple > 0) parts.push(`${rooms.quadruple} cuádruple${rooms.quadruple !== 1 ? "s" : ""}`);
-  return parts.length ? `Disponibilidad: ${parts.join(", ")}` : "Sin disponibilidad";
+  const total =
+    (rooms.single || 0) +
+    (rooms.double || 0) +
+    (rooms.triple || 0) +
+    (rooms.quadruple || 0);
+  return total > 0 ? `Availability: ${total}` : "No availability";
 }
 
 function renderAllocationCard(alloc) {
@@ -249,18 +251,18 @@ function renderAllocationCard(alloc) {
       <div class="result-top">
         <div>
           <h4 class="title">${escapeHtml(alloc.hotel_name || "Hotel")}</h4>
-          <p class="meta">${"⭐".repeat(Number(alloc.stars || 0)) || "Sin estrellas"}</p>
+          <p class="meta">${"⭐".repeat(Number(alloc.stars || 0)) || "No stars"}</p>
         </div>
       </div>
-      <div class="meta">Distancia: ${Number(alloc.distance_km || 0).toFixed(1)} km</div>
+      <div class="meta">Distance: ${Number(alloc.distance_km || 0).toFixed(1)} km</div>
       <div class="meta meta-info-row">
-        ${alloc.priority ? `<span class="priority-tag priority-${escapeHtml(alloc.priority)}">Prioridad: ${escapeHtml(alloc.priority)}</span>` : ""}
+        ${alloc.priority ? `<span class="priority-tag priority-${escapeHtml(alloc.priority)}">Priority: ${escapeHtml(alloc.priority)}</span>` : ""}
         ${alloc.assigned_passengers != null ? `<span class="pax-tag">Pax: ${Number(alloc.assigned_passengers)}</span>` : ""}
         ${alloc.is_estimated ? '<span class="badge badge-estimated">Estimated</span>' : ""}
       </div>
       ${groupsText ? `<p class="meta">${escapeHtml(groupsText)}</p>` : ""}
       ${roomsText ? `<p class="meta">${escapeHtml(roomsText)}</p>` : ""}
-      <p class="meta">Comidas: ${formatMeals(alloc.meals)}</p>
+      <p class="meta">Meals: ${formatMeals(alloc.meals, alloc.all_inclusive)}</p>
     </article>
   `;
 }
@@ -270,12 +272,29 @@ function renderResults(data) {
   const list = Array.isArray(data?.recommendations) ? data.recommendations : [];
   if (!list.length) {
     results.innerHTML =
-      '<p class="meta">No hay recomendaciones disponibles.</p>';
+      '<p class="meta">No recommendations available.</p>';
     return;
   }
 
   results.innerHTML = list
     .map((item, idx) => {
+      if (item.type === "multi") {
+        const hotelCards = (item.allocations || []).map(renderAllocationCard).join("");
+        const multiBadges = [
+          item.is_overflow_forced ? '<span class="badge badge-overflow">Overflow</span>' : "",
+          item.pet_friendly ? '<span class="badge badge-pet">Pet Friendly 🐾</span>' : "",
+        ].filter(Boolean).join("");
+        return `
+          <article class="result-card result-card--multi">
+            <div class="multi-group-header">
+              <h3 class="title">Multi-Hotel &middot; ${Number(item.hotels_used || 0)} hotels</h3>
+            </div>
+            ${multiBadges ? `<div class="badges">${multiBadges}</div>` : ""}
+            <div class="multi-hotel-cards">${hotelCards}</div>
+          </article>
+        `;
+      }
+
       const pct = Number(item.score_percentage || 0);
       const scoreClass = getScoreClass(item.score_label, pct);
       const breakdownRows = Object.entries(item.score_breakdown || {})
@@ -285,48 +304,18 @@ function renderResults(data) {
         )
         .join("");
 
-      if (item.type === "multi") {
-        const hotelCards = (item.allocations || []).map(renderAllocationCard).join("");
-        return `
-          <article class="result-card result-card--multi">
-            <div class="multi-group-header">
-              <div>
-                <h3 class="title">Multi-Hotel &middot; ${Number(item.hotels_used || 0)} hoteles</h3>
-              </div>
-            </div>
-            <div class="badges">
-              ${idx === 0 ? '<span class="badge badge-best">Best Option</span>' : ""}
-              <span class="badge badge-multi">Multi-Hotel</span>
-              ${item.is_estimated ? '<span class="badge badge-estimated">Estimated</span>' : ""}
-              ${item.is_overflow_forced ? '<span class="badge badge-overflow">Overflow</span>' : ""}
-              ${item.pet_friendly ? '<span class="badge badge-pet">Pet Friendly 🐾</span>' : ""}
-            </div>
-            <div class="score-wrap">
-              <div class="score-line">
-                <span>${escapeHtml(item.score_label || "Score")}</span>
-                <strong>${pct}%</strong>
-              </div>
-              <div class="score-bar"><div class="score-fill ${scoreClass}" style="width:${Math.max(0, Math.min(100, pct))}%"></div></div>
-            </div>
-            <button type="button" class="toggle-breakdown">Ver breakdown del grupo</button>
-            <div class="score-breakdown">${breakdownRows || '<div class="break-row"><span>Sin detalle</span><span>-</span></div>'}</div>
-            <div class="multi-hotel-cards">${hotelCards}</div>
-          </article>
-        `;
-      }
-
       return `
         <article class="result-card">
           <div class="result-top">
             <div>
               <h3 class="title">${escapeHtml(item.hotel_name || "Hotel")}</h3>
-              <p class="meta">${"⭐".repeat(Number(item.stars || 0)) || "Sin estrellas"}</p>
+              <p class="meta">${"⭐".repeat(Number(item.stars || 0)) || "No stars"}</p>
             </div>
           </div>
-          <div class="meta">Distancia: ${Number(item.distance_km || 0).toFixed(1)} km</div>
-          ${item.duration_seconds != null ? `<div class="meta">Tiempo estimado: ${formatDuration(item.duration_seconds)}</div>` : ""}
+          <div class="meta">Distance: ${Number(item.distance_km || 0).toFixed(1)} km</div>
+          ${item.duration_seconds != null ? `<div class="meta">Estimated travel time: ${formatDuration(item.duration_seconds)}</div>` : ""}
           <div class="meta meta-info-row">
-            ${item.priority ? `<span class="priority-tag priority-${escapeHtml(item.priority)}">Prioridad: ${escapeHtml(item.priority)}</span>` : ""}
+            ${item.priority ? `<span class="priority-tag priority-${escapeHtml(item.priority)}">Priority: ${escapeHtml(item.priority)}</span>` : ""}
             ${item.assigned_passengers != null ? `<span class="pax-tag">Pax: ${Number(item.assigned_passengers)}</span>` : ""}
           </div>
           ${Array.isArray(item.groups) && item.groups.length ? `<p class="meta">${escapeHtml(formatGroups(item.groups))}</p>` : ""}
@@ -344,9 +333,9 @@ function renderResults(data) {
             </div>
             <div class="score-bar"><div class="score-fill ${scoreClass}" style="width:${Math.max(0, Math.min(100, pct))}%"></div></div>
           </div>
-          <button type="button" class="toggle-breakdown">Ver breakdown</button>
-          <div class="score-breakdown">${breakdownRows || '<div class="break-row"><span>Sin detalle</span><span>-</span></div>'}</div>
-          <p class="meta">Comidas: ${formatMeals(item.meals)}</p>
+          <button type="button" class="toggle-breakdown">View breakdown</button>
+          <div class="score-breakdown">${breakdownRows || '<div class="break-row"><span>No details</span><span>-</span></div>'}</div>
+          <p class="meta">Meals: ${formatMeals(item.meals, item.all_inclusive)}</p>
         </article>
       `;
     })
@@ -465,25 +454,25 @@ function validateForm() {
     return {
       ok: false,
       fieldId: "airlineSelect",
-      title: "Falta seleccionar aerolínea",
+      title: "Airline not selected",
       message:
-        "Debes seleccionar una aerolínea en «Airline From» para obtener recomendaciones.",
+        "Please select an airline in Airline From to get recommendations.",
     };
   }
   if (!destination) {
     return {
       ok: false,
       fieldId: "destinationSelect",
-      title: "Falta seleccionar destino",
-      message: "Debes seleccionar un destino para continuar.",
+      title: "Destination not selected",
+      message: "Please select a destination to continue.",
     };
   }
   if (!Number.isFinite(passengers) || passengers < 1) {
     return {
       ok: false,
       fieldId: "passengers",
-      title: "Pasajeros no válidos",
-      message: "Indica al menos 1 pasajero.",
+      title: "Invalid passengers",
+      message: "Enter at least 1 passenger.",
     };
   }
   return { ok: true };
@@ -497,22 +486,22 @@ function friendlyApiError(raw = "") {
   ) {
     return {
       fieldId: "airlineSelect",
-      title: "Falta seleccionar aerolínea",
+      title: "Airline not selected",
       message:
-        "Debes seleccionar una aerolínea en «Airline From» para obtener recomendaciones.",
+        "Please select an airline in Airline From to get recommendations.",
     };
   }
   if (text.includes("destination")) {
     return {
       fieldId: "destinationSelect",
-      title: "Destino no válido",
-      message: "Selecciona un destino válido de la lista.",
+      title: "Invalid destination",
+      message: "Select a valid destination from the list.",
     };
   }
   return {
     fieldId: null,
-    title: "No se pudieron obtener recomendaciones",
-    message: raw || "Ocurrió un error inesperado. Intenta de nuevo.",
+    title: "Could not get recommendations",
+    message: raw || "An unexpected error occurred. Please try again.",
   };
 }
 
@@ -548,8 +537,24 @@ async function submitForm(event) {
     }
     const data = await res.json();
     renderResults(data);
+
+    const messages = [];
+    const petsRequested = byId("hasPets")?.checked ?? false;
+    const recs = Array.isArray(data.recommendations) ? data.recommendations : [];
+
+    if (petsRequested && recs.length > 0 && !recs.some((r) => r.pet_friendly)) {
+      messages.push("No pet-friendly hotels were found.");
+    }
     if (Array.isArray(data.warnings) && data.warnings.length > 0) {
-      setWarning("Advertencia de capacidad", data.warnings.join(" "));
+      messages.push(...data.warnings);
+    }
+
+    if (messages.length > 0) {
+      const title =
+        petsRequested && messages[0].includes("pet-friendly")
+          ? "Pet friendly"
+          : "Warning";
+      setWarning(title, messages.join(" "));
     } else {
       setWarning("");
     }

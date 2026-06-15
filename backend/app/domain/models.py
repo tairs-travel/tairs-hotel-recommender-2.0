@@ -35,6 +35,8 @@ class Hotel:
     meals: dict = field(default_factory=dict)  # breakfast/lunch/dinner → bool
     groups: list = field(default_factory=list)  # e.g. ["A", "B"]
     pet_friendly: bool = False
+    categories: list = field(default_factory=list)
+    all_inclusive: bool = False
 
 
 @dataclass
@@ -76,9 +78,56 @@ class RecommendationResult:
     hotels_coords: list | None = None  # [{name, lat, lng}] for multi-hotel
     duration_seconds: float | None = None
     pet_friendly: bool = False
+    all_inclusive: bool = False
     rooms: dict = field(default_factory=dict)  # {single, double, triple, quadruple}
 
+    def _serialize_allocations(self) -> list[dict[str, Any]]:
+        serialized: list[dict[str, Any]] = []
+        for alloc in (self.allocations or []):
+            combo = alloc.get("combo")
+            if hasattr(combo, "single"):
+                room_combination = {
+                    "single": combo.single,
+                    "double": combo.double,
+                    "triple": combo.triple,
+                    "quadruple": combo.quadruple,
+                }
+            else:
+                room_combination = combo or {}
+            serialized.append({
+                "hotel_id": alloc.get("hotel_id"),
+                "hotel_name": alloc.get("hotel_name"),
+                "stars": alloc.get("stars"),
+                "distance_km": alloc.get("distance_km"),
+                "assigned_passengers": alloc.get("assigned_passengers"),
+                "room_combination": room_combination,
+                "total_price": round(float(alloc.get("price", 0)), 2),
+                "meals": alloc.get("meals", {}),
+                "all_inclusive": alloc.get("all_inclusive", False),
+                "amenities": alloc.get("amenities", {}),
+                "priority": alloc.get("priority"),
+                "is_estimated": alloc.get("is_estimated", False),
+                "groups": alloc.get("groups", []),
+                "rooms": alloc.get("rooms", {}),
+            })
+        return serialized
+
     def to_dict(self) -> dict[str, Any]:
+        if self.result_type == "multi":
+            data: dict[str, Any] = {
+                "type": "multi",
+                "hotels_used": self.hotels_used,
+                "allocations": self._serialize_allocations(),
+                "hotels_coords": self.hotels_coords or [],
+            }
+            if self.pet_friendly:
+                data["pet_friendly"] = True
+            if self.is_overflow_forced:
+                data["is_overflow_forced"] = True
+            if self.passengers_unassigned > 0:
+                data["passengers_unassigned"] = self.passengers_unassigned
+            return data
+
         rc = self.room_combination
         data: dict[str, Any] = {
             "type": self.result_type,
@@ -99,6 +148,7 @@ class RecommendationResult:
             "score_breakdown": self.score_breakdown,
             "amenities": self.amenities,
             "meals": self.meals,
+            "all_inclusive": self.all_inclusive,
             "groups": self.groups,
             "lat": self.lat,
             "lng": self.lng,
@@ -115,39 +165,6 @@ class RecommendationResult:
 
         if self.passengers_unassigned > 0:
             data["passengers_unassigned"] = self.passengers_unassigned
-
-        if self.result_type == "multi":
-            data["hotels_used"] = self.hotels_used
-            serialized_allocations = []
-            for alloc in (self.allocations or []):
-                combo = alloc.get("combo")
-                if hasattr(combo, "single"):
-                    room_combination = {
-                        "single": combo.single,
-                        "double": combo.double,
-                        "triple": combo.triple,
-                        "quadruple": combo.quadruple,
-                    }
-                else:
-                    room_combination = combo or {}
-                serialized_allocations.append({
-                    "hotel_id": alloc.get("hotel_id"),
-                    "hotel_name": alloc.get("hotel_name"),
-                    "stars": alloc.get("stars"),
-                    "distance_km": alloc.get("distance_km"),
-                    "assigned_passengers": alloc.get("assigned_passengers"),
-                    "room_combination": room_combination,
-                    "total_price": round(float(alloc.get("price", 0)), 2),
-                    "meals": alloc.get("meals", {}),
-                    "amenities": alloc.get("amenities", {}),
-                    "priority": alloc.get("priority"),
-                    "is_estimated": alloc.get("is_estimated", False),
-                    "groups": alloc.get("groups", []),
-                    "rooms": alloc.get("rooms", {}),
-                })
-            data["allocations"] = serialized_allocations
-            if self.hotels_coords:
-                data["hotels_coords"] = self.hotels_coords
 
         if self.meals_coverage is not None:
             data["meals_coverage"] = self.meals_coverage

@@ -17,12 +17,12 @@ GET http://127.0.0.1:5001/health
 GET http://127.0.0.1:5001/airlines
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pipeline stage tests — Arajet (PUJ), group A (price 148)
+# Pipeline stage tests — Arajet (PUJ), group B (price 148)
 # Expected strategy per passenger count (live thresholds as of 2026-05-30):
 #   ≤ 198 pax  → single-hotel          (un hotel cubre todo)
 #   199–230    → multi-hotel            (varios hoteles, mismo IATA PUJ)
-#   231+       → expansion-multi primero (grupos A→B en mismo IATA)
-#   luego      → overflow-multi         (PUJ + SDQ, tras agotar local)
+#   231+       → expansion-multi primero (grupos expandidos, mismo IATA)
+#   luego      → overflow-multi         (PUJ + SDQ, grupo primario)
 #   ≥ 290      → expansion-overflow-multi (PUJ + SDQ, grupos expandidos)
 # Respuesta puede incluir "warnings" si hubo expansión u overflow.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ POST http://127.0.0.1:5001/recommendations
 Content-Type: application/json
 
 {
-  "passengers": 180,
+  "passengers": 500,
   "airline": "Arajet (PUJ)",
   "destination": "Arajet (PUJ)"
 }
@@ -49,7 +49,7 @@ Content-Type: application/json
   "check_out": "2026-06-02T10:00:00"
 }
 
-### SDQ — single-hotel (2 pax, destino SDQ, Condor grupo D price 185)
+### SDQ — single-hotel (2 pax, destino SDQ, Condor grupo C price 185)
 POST http://127.0.0.1:5001/recommendations
 Content-Type: application/json
 

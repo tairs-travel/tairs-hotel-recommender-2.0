@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
@@ -18,7 +18,7 @@
             <form id="recommendationForm" novalidate>
                 <div class="form-grid">
                     <div class="field">
-                        <label for="passengers">Passenger</label>
+                        <label for="passengers">Passengers</label>
                         <input id="passengers" type="number" min="1" value="1" required>
                     </div>
 
@@ -47,10 +47,11 @@
                         <input id="checkOut" type="datetime-local">
                     </div>
 
-                    <div class="field field--full field--checkbox">
-                        <label class="checkbox-label" for="hasPets">
-                            <input id="hasPets" type="checkbox">
-                            Viajan con mascotas
+                    <div class="field field--full field--toggle">
+                        <span class="toggle-label">Pet friendly</span>
+                        <label class="toggle-switch" for="hasPets">
+                            <input id="hasPets" type="checkbox" role="switch" aria-label="Pet friendly">
+                            <span class="toggle-slider"></span>
                         </label>
                     </div>
                 </div>
@@ -61,7 +62,7 @@
 
             <div id="loading" class="loading hidden">
                 <div class="spinner"></div>
-                <p>Consultando recomendaciones...</p>
+                <p>Fetching recommendations...</p>
             </div>
             <div id="errorBox" class="error-box hidden" role="alert" aria-live="polite">
                 <span class="error-box__icon" aria-hidden="true">!</span>

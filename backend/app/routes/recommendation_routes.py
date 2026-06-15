@@ -31,21 +31,20 @@ _watcher_thread: threading.Thread | None = None
 _watcher_lock = threading.Lock()
 
 
+def _airline_payload(a) -> dict:
+    return {
+        "display_name": a.display_name,
+        "name": a.name,
+        "iata_code": a.iata_code,
+        "country": a.country,
+        "lat": a.lat,
+        "lng": a.lng,
+        "group": get_airline_group(a.coach_price),
+    }
+
+
 def _serialize_airlines(airlines) -> str:
-    return json.dumps(
-        [
-            {
-                "display_name": a.display_name,
-                "name": a.name,
-                "iata_code": a.iata_code,
-                "country": a.country,
-                "lat": a.lat,
-                "lng": a.lng,
-                "group": get_airline_group(a.coach_price),
-            }
-            for a in airlines
-        ]
-    )
+    return json.dumps([_airline_payload(a) for a in airlines])
 
 
 def _broadcast(data: str) -> None:
@@ -99,17 +98,7 @@ def recommendations():
 @recommendation_bp.route("/airlines", methods=["GET"])
 def airlines():
     return jsonify(
-        [
-            {
-                "display_name": a.display_name,
-                "name": a.name,
-                "iata_code": a.iata_code,
-                "country": a.country,
-                "lat": a.lat,
-                "lng": a.lng,
-            }
-            for a in _airline_repo.get_all_airlines()
-        ]
+        [_airline_payload(a) for a in _airline_repo.get_all_airlines()]
     )
 
 

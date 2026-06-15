@@ -2,25 +2,31 @@ from __future__ import annotations
 
 # Price boundaries are inclusive on both ends: low <= price <= high
 _GROUPS: list[tuple[str, float, float]] = [
-    ("A", 140.00, 149.99),
-    ("B", 150.00, 159.99),
-    ("C", 160.00, 169.99),
-    ("D", 170.00, 185.00),
+    ("A", 120.00, 139.99),
+    ("B", 140.00, 159.99),
+    ("C", 160.00, 200.00),
 ]
 
 _EXPANSION: dict[str, list[str]] = {
     "A": ["A", "B"],
     "B": ["A", "B", "C"],
-    "C": ["B", "C", "D"],
-    "D": ["C", "D"],
+    "C": ["B", "C"],
 }
 
 
 def get_airline_group(price: float) -> str:
-    """Return the price group letter for *price*, or 'UNKNOWN' if out of range."""
+    """Return the price group letter for *price*, or 'UNKNOWN' if invalid."""
+    if price <= 0:
+        return "UNKNOWN"
     for group, low, high in _GROUPS:
         if low <= price <= high:
             return group
+    lowest_group, lowest_low, _ = _GROUPS[0]
+    highest_group, _, highest_high = _GROUPS[-1]
+    if price < lowest_low:
+        return lowest_group
+    if price > highest_high:
+        return highest_group
     return "UNKNOWN"
 
 
